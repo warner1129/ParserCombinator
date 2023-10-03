@@ -20,13 +20,18 @@ namespace details {
 
     template<class... Ts>
     struct PushProductTypes : type_identity<ProductTypes<Ts...>> {};
+    template<>
+    struct PushProductTypes<monostate, monostate> : type_identity<monostate> {};
     template<class... T, class U>
     struct PushProductTypes<ProductTypes<T...>, U> : type_identity<ProductTypes<T..., U>> {};
     template<class T, class... U>
     struct PushProductTypes<T, ProductTypes<U...>> : type_identity<ProductTypes<T, U...>> {};
     template<class... T, class... U>
     struct PushProductTypes<ProductTypes<T...>, ProductTypes<U...>> : type_identity<ProductTypes<T..., U...>> {};
+    template<class T, class U>
+    using PushProductTypes_t = typename PushProductTypes<T, U>::type;
 
+    monostate ResultCat(monostate, monostate) { return {}; };
     template<class T, class U>
     ProductTypes<T, U> ResultCat(T a, U b) { return make_tuple(a, b); };
     template<class T, class... U>
@@ -54,6 +59,8 @@ namespace details {
     template<class... Ts, class U>
     struct PushAdditionTypes<AdditionTypes<Ts...>, U> : conditional<
         is_one_of<U, Ts...>::value, AdditionTypes<Ts...>, AdditionTypes<Ts..., U>> {};
+    template<class T, class U>
+    using PushAdditionTypes_t = typename PushAdditionTypes<T, U>::type;
 
     template<typename T> struct LambdaTraits;
     template<typename T, typename R, typename ...Args>
@@ -82,7 +89,7 @@ using ParserInput = string_view;
 template<class T>
 using ParserResult = optional<pair<T, ParserInput>>;
 
-template<class T>
+template<class T = monostate>
 struct ParserCombinator {
     using type = T;
     using Parser = function<ParserResult<type>(ParserInput)>;
@@ -130,7 +137,7 @@ inline constexpr bool isParserCombinator_v = isParserCombinator<T>::value;
 
 template<class P1, class P2,
     class = enable_if_t<isParserCombinator_v<decay_t<P1>> and isParserCombinator_v<decay_t<P2>>>,
-    class R = details::PushProductTypes<typename decay_t<P1>::type, typename decay_t<P2>::type>::type>
+    class R = details::PushProductTypes_t<typename decay_t<P1>::type, typename decay_t<P2>::type>>
 ParserCombinator<R> operator+(P1 &&p1, P2 &&p2) {
     return {[
         t1=is_lvalue_reference_v<P1> ? p1.lazy() : p1.parser,
@@ -146,7 +153,7 @@ ParserCombinator<R> operator+(P1 &&p1, P2 &&p2) {
 
 template<class P1, class P2,
     class = enable_if_t<isParserCombinator_v<decay_t<P1>> and isParserCombinator_v<decay_t<P2>>>,
-    class R = details::PushAdditionTypes<typename decay_t<P1>::type, typename decay_t<P1>::type>::type>
+    class R = details::PushAdditionTypes_t<typename decay_t<P1>::type, typename decay_t<P1>::type>>
 ParserCombinator<R> operator|(P1 &&p1, P2 &&p2) {
     return {[
         t1=is_lvalue_reference_v<P1> ? p1.lazy() : p1.parser,
@@ -173,10 +180,28 @@ ParserCombinator<R> operator>>(ParserCombinator<T> p, Func f) {
     }};
 };
 
-ParserCombinator<char> Token(function<bool(char)> &&f) {
-    return {[=](ParserInput in) -> ParserResult<char> {
+template<class R = char>
+ParserCombinator<R> Token(function<bool(char)> &&f) {
+    return {[=](ParserInput in) -> ParserResult<R> {
         if (in.empty() or !f(in[0])) return nullopt;
-        return pair(in[0], ParserInput(in.begin() + 1, in.end()));
+        if constexpr (is_same_v<R, monostate>) {
+            return pair(monostate{}, ParserInput(in.begin() + 1, in.end()));
+        } else {
+            return pair(in[0], ParserInput(in.begin() + 1, in.end()));
+        }
+    }};
+}
+
+ParserCombinator<monostate> Epsilon() {
+    return {[](ParserInput in) -> ParserResult<monostate> {
+        if (in.empty()) return pair(monostate{}, in);
+        return nullopt;
+    }};
+}
+
+ParserCombinator<monostate> Lambda() {
+    return {[](ParserInput in) -> ParserResult<monostate> {
+        return pair(monostate{}, in);
     }};
 }
 
@@ -190,27 +215,32 @@ ParserCombinator<string> Token(string_view S) {
     }};
 }
 
+auto operator""_T(const char c) {
+    return Token<monostate>([=](char in) { return in == c; });
+}
+
+template<class T = monostate>
+using Parser = ParserCombinator<T>;
+
 void solve() {
-    ParserCombinator<int> a;
-    ParserCombinator<int> b;
 
-    ParserCombinator<int> Decimal = Token([](char c) { return (bool)isdigit(c); }) >> [](char c) { return int(c - '0'); };
-    ParserCombinator<int> Number;
+    Parser<int> Decimal = Token(::isdigit) >> [](char c) { return c - '0'; };
+    Parser<int> Number;
+    Number = Number + Decimal >> [](int a, int b) { return a * 10 + b; } | Decimal;
 
-    ParserCombinator<int> expr;
-    ParserCombinator<string> plus = Token("+");
+    Parser<int> expr;
+    expr = '('_T + expr + ','_T + expr + ','_T + expr + ')'_T >>
+        [](monostate, int a, monostate, int b, monostate, int c, monostate) {
+            return a * b % c;
+    } | Number;
 
-
-    Number = Number + Decimal >> [](any a, int b) -> int { return any_cast<int>(a) * 10 + b; } | Decimal;
-    expr = expr + plus + Number >> [](int a, string, int b) { return a + b; } | Number;
-    
     string s;
     while (cin >> s) {
         auto r = expr(s);
-        if (!r) {
-            cout << "bad\n";
+        if (r) {
+            cout << r->first << '\n';
         } else {
-            cout << r->first << ' ' << r->second << '\n';
+            cout << "fail\n";
         }
     }
 
