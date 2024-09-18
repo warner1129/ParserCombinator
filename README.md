@@ -1,22 +1,19 @@
 ## Features
 
-- **ParserCombinator 類**：
-  - 能夠處理解析過程中的中間結果並記憶化。
-  - 支持多種組合子運算，包括 `+`（串接）、`|`（選擇）、`>>`（映射），以及 `Token` 和 `Epsilon` 函數來定義基本的解析單位。
-
-- **Parser Combinator 運算符**：
+- **ParserCombinator Class**：
+  - 能夠處理解析過程中的中間結果並記憶化，兼容左遞迴。
   - **`+`**：串接運算，將兩個解析器組合成一個解析器，依次處理兩個輸入部分。
   - **`|`**：選擇運算，在兩個解析器之間進行選擇，嘗試第一個解析器，若失敗則嘗試第二個解析器。
   - **`>>`**：映射運算，將解析結果映射到其他類型或進行進一步處理。
 
-- **基本解析單位**：
+- **Basic Parsers**：
   - **Token**：用於匹配單個字符或字符串，支持自定義匹配函數。
   - **Epsilon**：表示空解析，當輸入為空時返回成功。
   - **Lambda**：表示空解析，不消耗任何輸入。
 
-## Sample
+## Sample Usage
 
-### Usage
+### Basic Parsing
 
 ```cpp
 Parser Decimal = Token(isdigit);
@@ -42,7 +39,7 @@ while (std::cin >> s) {
 }
 ```
 
-### 表達式解析
+### Expression Parsing
 ```cpp
 Parser<int> Add, Mul, Pri, Num, Dec;
 
